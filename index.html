@@ -21,7 +21,12 @@
         import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-auth.js";
         import { getFirestore, collection, doc, setDoc, onSnapshot, query, addDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-firestore.js";
 
-        // ⚠️ สำคัญมาก: คุณต้องนำค่าจริงจาก Firebase Console มาใส่ที่นี่ ⚠️
+        /**
+         * ⚠️ ขั้นตอนแก้ไขข้อผิดพลาด "api-key-not-valid" ⚠️
+         * คุณต้องนำค่าจริงจาก Firebase Console มาใส่แทนที่ข้อความภาษาไทยด้านล่างนี้
+         * 1. เข้า Firebase Console > Project Settings > General
+         * 2. เลื่อนลงไปที่ "Your apps" แล้วก๊อปปี้ค่า apiKey มาใส่
+         */
         const firebaseConfig = {
             apiKey: "ใส่_API_KEY_ของคุณที่นี่",
             authDomain: "apartcloud-41240.firebaseapp.com",
@@ -99,6 +104,7 @@
             const [view, setView] = useState('dashboard');
             const [loading, setLoading] = useState(true);
             const [loadingError, setLoadingError] = useState(false);
+            const [errorMessage, setErrorMessage] = useState("");
             const [selectedRoom, setSelectedRoom] = useState(null);
             const [tempStatus, setTempStatus] = useState(null);
             const [isSaving, setIsSaving] = useState(false);
@@ -109,36 +115,43 @@
             }, [isUnlocked, view, activePropertyId, roomStates, loading, loadingError, selectedRoom]);
 
             useEffect(() => {
-                const timer = setTimeout(() => {
-                    if (loading) setLoadingError(true);
-                }, 8000); // ถ้าโหลดเกิน 8 วินาที ให้ถือว่ามีปัญหา
-
                 const { initializeApp, getAuth, signInAnonymously, getFirestore, collection, onSnapshot } = window.fbSDK;
+                
+                // ตรวจสอบเบื้องต้นว่าใส่ API Key หรือยัง
+                if (!window.fbConfig.apiKey || window.fbConfig.apiKey.includes("ใส่_API_KEY")) {
+                    setErrorMessage("Firebase API Key ไม่ถูกต้องหรือยังไม่ได้ระบุ");
+                    setLoadingError(true);
+                    return;
+                }
+
                 try {
                     const app = initializeApp(window.fbConfig);
                     const firestore = getFirestore(app);
+                    const auth = getAuth(app);
                     setDb(firestore);
 
-                    signInAnonymously(getAuth(app)).then(() => {
+                    signInAnonymously(auth).then(() => {
                         onSnapshot(collection(firestore, 'artifacts', APP_ID, 'public', 'data', 'rooms'), (snap) => {
                             const data = {};
                             snap.forEach(d => data[d.id] = d.data());
                             setRoomStates(data);
                             setLoading(false);
                             setLoadingError(false);
-                            clearTimeout(timer);
                         }, (err) => {
                             console.error("Firestore Error:", err);
+                            setErrorMessage("ไม่สามารถดึงข้อมูลจาก Cloud ได้");
                             setLoadingError(true);
                         });
                     }).catch(err => {
                         console.error("Auth Error:", err);
+                        setErrorMessage("API Key ไม่ถูกต้อง กรุณาตรวจสอบใน Firebase Console");
                         setLoadingError(true);
                     });
                 } catch (e) { 
+                    console.error("Init Error:", e);
+                    setErrorMessage("โครงสร้าง Firebase Config ผิดพลาด");
                     setLoadingError(true); 
                 }
-                return () => clearTimeout(timer);
             }, []);
 
             const handleUpdateStatus = async (e) => {
@@ -167,19 +180,19 @@
             if (loading && !loadingError) return (
                 <div className="h-screen flex flex-col items-center justify-center bg-white text-indigo-600 p-6 text-center">
                     <div className="dot-flashing mb-8"></div>
-                    <p className="font-black italic tracking-[0.2em] text-sm animate-pulse">CONNECTING TO CLOUD...</p>
+                    <p className="font-black italic tracking-[0.2em] text-sm animate-pulse uppercase">Connecting to Cloud...</p>
                 </div>
             );
 
             if (loadingError && loading) return (
                 <div className="h-screen flex flex-col items-center justify-center bg-slate-50 p-10 text-center">
                     <div className="w-20 h-20 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mb-6">
-                        <i data-lucide="alert-triangle" className="w-10 h-10"></i>
+                        <i data-lucide="shield-alert" className="w-10 h-10"></i>
                     </div>
-                    <h2 className="text-2xl font-black text-slate-800 mb-2">การเชื่อมต่อผิดพลาด</h2>
-                    <p className="text-slate-400 text-sm mb-8 leading-relaxed">
-                        ระบบไม่สามารถเชื่อมต่อฐานข้อมูลได้ <br/> 
-                        สาเหตุ: ยังไม่ได้ใส่ <b>Firebase Config</b> ที่ถูกต้องในโค้ด
+                    <h2 className="text-2xl font-black text-slate-800 mb-2">ข้อผิดพลาด API Key</h2>
+                    <p className="text-slate-400 text-sm mb-8 leading-relaxed max-w-xs mx-auto">
+                        {errorMessage} <br/> 
+                        <span className="text-[10px] mt-2 block italic text-slate-300">(Firebase: Error auth/api-key-not-valid)</span>
                     </p>
                     <div className="space-y-3 w-full max-w-xs">
                         <button 
@@ -189,10 +202,10 @@
                             <i data-lucide="refresh-cw" className="w-4 h-4"></i> ลองใหม่อีกครั้ง
                         </button>
                         <button 
-                            onClick={() => { setLoading(false); setLoadingError(false); }} 
+                            onClick={() => { setLoading(false); setLoadingError(false); setDb(null); }} 
                             className="w-full bg-indigo-600 text-white p-4 rounded-2xl font-bold flex items-center justify-center gap-2 shadow-xl shadow-indigo-100"
                         >
-                            <i data-lucide="play" className="w-4 h-4"></i> ลองใช้งาน (DEMO MODE)
+                            <i data-lucide="play" className="w-4 h-4"></i> ข้ามไปโหมดทดลอง (DEMO)
                         </button>
                     </div>
                 </div>
@@ -244,6 +257,12 @@
                     </nav>
 
                     <main className="p-4 max-w-6xl mx-auto">
+                        {!db && (
+                            <div className="bg-amber-50 border-2 border-amber-200 p-3 rounded-2xl mb-6 flex items-center gap-3 text-amber-700 font-bold text-xs no-print animate-pulse">
+                                <i data-lucide="info" className="w-4 h-4"></i>
+                                กำลังอยู่ในโหมดทดลอง (DEMO) ข้อมูลจะไม่ถูกบันทึกลง Cloud จริง
+                            </div>
+                        )}
                         {view === 'dashboard' ? (
                             <div className="space-y-6">
                                 <div className="flex overflow-x-auto gap-2 no-scrollbar pb-2">
