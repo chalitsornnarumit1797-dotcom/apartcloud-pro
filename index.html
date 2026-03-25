@@ -35,10 +35,16 @@ import {
   Save,
   Banknote,
   FileText,
-  PieChart
+  PieChart,
+  Lock,
+  Unlock,
+  KeyRound
 } from 'lucide-react';
 
 // --- Configuration & Constants ---
+
+// กำหนดรหัสผ่านสำหรับการเข้าใช้งาน (คุณสามารถเปลี่ยนรหัส 1234 เป็นรหัสที่คุณต้องการได้)
+const ACCESS_PIN = "933979"; 
 
 const STATUS_CONFIG = {
   available: { label: 'พร้อมขาย (Available)', color: 'bg-emerald-500', text: 'text-white', light: 'bg-emerald-50', border: 'border-emerald-200', iconColor: 'text-emerald-600' },
@@ -154,6 +160,11 @@ export default function App() {
   const [view, setView] = useState(() => localStorage.getItem('apt_last_view') || 'dashboard');
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  
+  // สถานะการล็อกอินส่วนตัว (Private PIN)
+  const [isUnlocked, setIsUnlocked] = useState(() => localStorage.getItem('apt_unlocked') === 'true');
+  const [pinInput, setPinInput] = useState("");
+  const [pinError, setPinError] = useState(false);
 
   useEffect(() => {
     localStorage.setItem('apt_last_property', activePropertyId);
@@ -174,7 +185,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user) return;
+    if (!user || !isUnlocked) return;
     const roomsRef = collection(db, 'artifacts', appId, 'public', 'data', 'rooms');
     const logsRef = collection(db, 'artifacts', appId, 'public', 'data', 'logs');
 
@@ -192,7 +203,7 @@ export default function App() {
     });
 
     return () => { unsubRooms(); unsubLogs(); };
-  }, [user]);
+  }, [user, isUnlocked]);
 
   const activeProperty = PROPERTIES.find(p => p.id === activePropertyId);
 
@@ -242,6 +253,23 @@ export default function App() {
     }
   };
 
+  const handlePinSubmit = (e) => {
+    e.preventDefault();
+    if (pinInput === ACCESS_PIN) {
+      setIsUnlocked(true);
+      localStorage.setItem('apt_unlocked', 'true');
+      setPinError(false);
+    } else {
+      setPinError(true);
+      setPinInput("");
+    }
+  };
+
+  const handleLock = () => {
+    setIsUnlocked(false);
+    localStorage.removeItem('apt_unlocked');
+  };
+
   const exportCSVSummary = () => {
     let csvRows = [["สรุปรายงานหอพักทั้งหมด", `วันที่: ${new Date().toLocaleString('th-TH')}`], []];
     
@@ -273,6 +301,47 @@ export default function App() {
     link.click();
   };
 
+  // แสดงหน้าจอล็อก (PIN Protection)
+  if (!isUnlocked) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-['Prompt',sans-serif]">
+        <div className="bg-white w-full max-w-sm rounded-[3rem] p-10 shadow-2xl text-center space-y-8 animate-in fade-in zoom-in duration-500">
+          <div className="w-20 h-20 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl shadow-indigo-200">
+            <Lock className="w-10 h-10 text-white" />
+          </div>
+          <div>
+            <h2 className="text-3xl font-black italic tracking-tighter">PRIVATE CLOUD</h2>
+            <p className="text-slate-400 text-xs font-bold uppercase tracking-widest mt-1">กรุณากรอกรหัสผ่านเพื่อเข้าใช้งาน</p>
+          </div>
+          
+          <form onSubmit={handlePinSubmit} className="space-y-4">
+            <div className="relative">
+              <input 
+                type="password" 
+                value={pinInput}
+                onChange={(e) => setPinInput(e.target.value)}
+                placeholder="ACCESS PIN"
+                className={`w-full bg-slate-100 border-none rounded-2xl p-5 text-center text-2xl font-black tracking-[0.5em] focus:ring-4 transition-all outline-none ${pinError ? 'ring-rose-200 bg-rose-50' : 'ring-indigo-100'}`}
+                autoFocus
+              />
+              {pinError && <p className="text-rose-500 text-[10px] font-bold mt-2 animate-bounce">รหัสผ่านไม่ถูกต้อง!</p>}
+            </div>
+            <button 
+              type="submit"
+              className="w-full bg-slate-900 text-white py-5 rounded-2xl font-black text-xl hover:bg-black transition-all active:scale-95 shadow-xl"
+            >
+              UNLOCK
+            </button>
+          </form>
+          
+          <div className="pt-4 text-slate-300 text-[10px] font-bold italic">
+            ApartCloud PRO © 2024
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (loading && !user) return <div className="min-h-screen flex items-center justify-center font-bold">กำลังโหลดข้อมูลคลาวด์...</div>;
 
   return (
@@ -290,7 +359,10 @@ export default function App() {
             <Users className="w-4 h-4" /> ประวัติ
           </button>
           <button onClick={() => setView('summary')} className={`p-2 px-3 rounded-xl flex items-center gap-2 ${view === 'summary' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-400'}`}>
-            <FileText className="w-4 h-4" /> สรุปรายงาน
+            <FileText className="w-4 h-4" /> สรุป
+          </button>
+          <button onClick={handleLock} className="p-2 px-3 rounded-xl text-slate-300 hover:text-rose-500 transition-colors">
+            <Unlock className="w-4 h-4" />
           </button>
         </div>
       </nav>
@@ -302,7 +374,7 @@ export default function App() {
             <div className="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
               {['available', 'booked', 'maintenance', 'appointment'].map(st => (
                 <div key={st} className="bg-white p-4 rounded-2xl border-b-4 shadow-sm text-center" style={{borderColor: st==='available'?'#10b981':st==='booked'?'#f43f5e':st==='maintenance'?'#ea580c':'#38bdf8'}}>
-                  <p className="text-[10px] text-slate-400 font-bold mb-1">{STATUS_CONFIG[st].label.split(' ')[0]}</p>
+                  <p className="text-[10px] text-slate-400 font-bold mb-1 uppercase tracking-tighter">{STATUS_CONFIG[st].label.split(' ')[0]}</p>
                   <p className="text-2xl font-black">{statusSummary[st]?.length || 0}</p>
                 </div>
               ))}
@@ -330,7 +402,7 @@ export default function App() {
 
                       return (
                         <button key={roomNo} onClick={() => { setSelectedRoom(roomNo); setTempStatus(info.status); }} className={`p-3 rounded-2xl font-black text-center transition active:scale-95 ${STATUS_CONFIG[info.status].color} ${STATUS_CONFIG[info.status].text}`}>
-                          <div className="text-lg leading-tight">{roomNo}</div>
+                          <div className="text-lg leading-tight tracking-tighter">{roomNo}</div>
                           {displayPrice && (
                             <div className={`text-[7px] font-bold mt-1 ${manualPrice ? 'text-yellow-200' : 'opacity-80'}`}>
                               ฿ {displayPrice} {manualPrice && '★'}
@@ -345,9 +417,8 @@ export default function App() {
             </div>
           </>
         ) : view === 'visitors' ? (
-          /* หน้าประวัติแบบเดิม */
           <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border border-slate-100">
-            <div className="p-8 bg-slate-900 text-white flex justify-between items-center font-black italic uppercase">VISITOR & BOOKING HISTORY</div>
+            <div className="p-8 bg-slate-900 text-white flex justify-between items-center font-black italic uppercase">ACTIVITY HISTORY</div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b">
@@ -359,7 +430,7 @@ export default function App() {
                       <td className="p-6 text-xs text-slate-400">{log.entryDate}</td>
                       <td className="p-6">{log.roomNo} <span className="text-[10px] text-slate-300 block">{log.propertyName}</span></td>
                       <td className="p-6">{log.name}</td>
-                      <td className="p-6 text-indigo-500">{log.phone}</td>
+                      <td className="p-6 text-indigo-500 font-black">{log.phone}</td>
                       <td className="p-6 uppercase text-[10px]">{log.statusLabel}</td>
                       <td className="p-6 text-right">
                         <button onClick={() => deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'logs', log.id))} className="p-2 text-rose-500 bg-rose-50 rounded-lg hover:bg-rose-500 hover:text-white transition-all"><X className="w-4 h-4" /></button>
@@ -371,12 +442,11 @@ export default function App() {
             </div>
           </div>
         ) : (
-          /* หน้าสรุปรายงาน (SUMMARY REPORT VIEW) */
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <div>
                 <h2 className="text-3xl font-black italic uppercase tracking-tighter text-slate-800">SUMMARY REPORT</h2>
-                <p className="text-slate-400 text-xs font-bold uppercase">สรุปภาพรวมหอพักทุกตึกในระบบ</p>
+                <p className="text-slate-400 text-xs font-bold uppercase tracking-widest">สรุปภาพรวมหอพักทั้งหมดในคลาวด์</p>
               </div>
               <div className="flex gap-2 w-full sm:w-auto">
                 <button onClick={exportCSVSummary} className="flex-1 sm:flex-none bg-emerald-600 text-white p-3 rounded-2xl font-black flex items-center justify-center gap-2 text-xs shadow-lg shadow-emerald-100">
@@ -388,7 +458,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Grid สรุปตัวเลข */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {['available', 'booked', 'maintenance', 'appointment'].map(st => (
                 <div key={st} className={`${STATUS_CONFIG[st].light} border-2 ${STATUS_CONFIG[st].border} p-6 rounded-[2.5rem] flex flex-col items-center justify-center text-center shadow-sm`}>
@@ -401,20 +470,19 @@ export default function App() {
               ))}
             </div>
 
-            {/* รายละเอียดการจอง */}
+            {/* Booked Table */}
             <div className="bg-white rounded-[2.5rem] shadow-sm border overflow-hidden">
-              <div className="p-6 bg-rose-50 border-b flex items-center gap-3">
-                <div className="w-8 h-8 bg-rose-500 text-white rounded-full flex items-center justify-center"><Banknote className="w-4 h-4" /></div>
-                <h3 className="font-black text-rose-600 text-lg uppercase tracking-tight">รายการห้องจองทั้งหมด (Booked)</h3>
+              <div className="p-6 bg-rose-50 border-b flex items-center gap-3 font-black text-rose-600 uppercase italic">
+                <Banknote className="w-5 h-5" /> รายการห้องจอง (Booked)
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b">
-                    <tr><th className="p-6">อาคาร / เลขห้อง</th><th className="p-6">ชื่อลูกค้า</th><th className="p-6">เบอร์โทรศัพท์</th><th className="p-6">วันที่ทำสัญญา/ย้ายเข้า</th><th className="p-6">เวลา</th></tr>
+                    <tr><th className="p-6">อาคาร / เลขห้อง</th><th className="p-6">ลูกค้า</th><th className="p-6">เบอร์โทรศัพท์</th><th className="p-6">วันย้ายเข้า</th><th className="p-6">เวลา</th></tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-bold">
                     {statusSummary.booked.length === 0 ? (
-                      <tr><td colSpan="5" className="p-10 text-center text-slate-300 italic">ไม่มีข้อมูลการจองในขณะนี้</td></tr>
+                      <tr><td colSpan="5" className="p-10 text-center text-slate-300 italic">ไม่มีข้อมูลการจอง</td></tr>
                     ) : (
                       statusSummary.booked.map((item, i) => (
                         <tr key={i} className="hover:bg-slate-50 transition-colors">
@@ -433,134 +501,69 @@ export default function App() {
                 </table>
               </div>
             </div>
-
-            {/* รายละเอียดการนัดดูห้อง */}
-            <div className="bg-white rounded-[2.5rem] shadow-sm border overflow-hidden">
-              <div className="p-6 bg-sky-50 border-b flex items-center gap-3">
-                <div className="w-8 h-8 bg-sky-400 text-white rounded-full flex items-center justify-center"><Users className="w-4 h-4" /></div>
-                <h3 className="font-black text-sky-600 text-lg uppercase tracking-tight">รายการนัดดูห้องทั้งหมด (Appointment)</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 text-[10px] uppercase font-black text-slate-400 border-b">
-                    <tr><th className="p-6">อาคาร / เลขห้อง</th><th className="p-6">ชื่อลูกค้า</th><th className="p-6">เบอร์โทรศัพท์</th><th className="p-6">วันที่นัดดูห้อง</th><th className="p-6">เวลา</th></tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 font-bold">
-                    {statusSummary.appointment.length === 0 ? (
-                      <tr><td colSpan="5" className="p-10 text-center text-slate-300 italic">ไม่มีข้อมูลการนัดดูห้องในขณะนี้</td></tr>
-                    ) : (
-                      statusSummary.appointment.map((item, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors">
-                          <td className="p-6">
-                            <div className="text-slate-800">{item.roomNo}</div>
-                            <div className="text-[10px] text-slate-400 uppercase tracking-wider">{item.propertyName}</div>
-                          </td>
-                          <td className="p-6 text-slate-700">{item.lastVisitor || '-'}</td>
-                          <td className="p-6 text-indigo-500 font-black">{item.lastPhone || '-'}</td>
-                          <td className="p-6 text-sky-600 flex items-center gap-1"><Calendar className="w-3 h-3" /> {item.date || 'ไม่ระบุ'}</td>
-                          <td className="p-6 text-slate-600">{item.time || '-'}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
           </div>
         )}
       </main>
 
-      {/* Modal แก้ไขข้อมูล (เหมือนเดิม) */}
+      {/* Modal แก้ไขข้อมูล */}
       {selectedRoom && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4 no-print">
           <form onSubmit={handleUpdateStatus} className="bg-white rounded-t-[3rem] sm:rounded-[3rem] w-full max-w-md overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-300">
-            <div className="bg-slate-900 p-8 text-white flex justify-between items-center">
-                <h3 className="text-4xl font-black italic uppercase tracking-tighter">Room {selectedRoom}</h3>
-                <button type="button" onClick={() => setSelectedRoom(null)} className="bg-white/10 p-2 rounded-full"><X /></button>
+            <div className="bg-slate-900 p-8 text-white flex justify-between items-center relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full -translate-y-16 translate-x-16"></div>
+                <h3 className="text-4xl font-black italic uppercase tracking-tighter leading-none relative z-10">Room {selectedRoom}</h3>
+                <button type="button" onClick={() => setSelectedRoom(null)} className="bg-white/10 p-2 rounded-full relative z-10 hover:bg-white/20 transition-all"><X /></button>
             </div>
             <div className="p-8 space-y-6">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                  <label key={key} className={`p-4 rounded-2xl border-2 font-black flex items-center gap-2 cursor-pointer transition ${tempStatus === key ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-400'}`}>
+                  <label key={key} className={`p-3 rounded-2xl border-2 font-black flex flex-col items-center gap-1 cursor-pointer transition active:scale-95 ${tempStatus === key ? 'border-indigo-600 bg-indigo-50 text-indigo-700' : 'border-slate-100 text-slate-300'}`}>
                     <input type="radio" name="status" checked={tempStatus === key} onChange={() => setTempStatus(key)} className="hidden" />
-                    <div className={`w-3 h-3 rounded-full ${cfg.color}`}></div> {cfg.label.split(' ')[0]}
+                    <div className={`w-2.5 h-2.5 rounded-full ${cfg.color} ${tempStatus === key ? 'ring-4 ring-indigo-200' : ''}`}></div> 
+                    <span className="text-[10px] uppercase tracking-tighter">{cfg.label.split(' ')[0]}</span>
                   </label>
                 ))}
               </div>
-              <div className="bg-slate-50 p-6 rounded-3xl border-2 border-indigo-100 space-y-4 shadow-inner">
+              <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4 shadow-inner">
                 <div className="relative">
-                  <p className="text-[10px] uppercase font-black text-indigo-600 mb-1 ml-2 flex items-center gap-1"><Banknote className="w-3 h-3" /> ราคาห้อง (พิเศษ/โปรโมชั่น)</p>
-                  <input name="customPrice" type="text" placeholder="ระบุราคา..." defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.price || ""} className="w-full p-4 rounded-xl border-none shadow-sm font-bold focus:ring-2 ring-indigo-500 outline-none" />
+                  <p className="text-[10px] uppercase font-black text-indigo-600 mb-1 ml-2 flex items-center gap-1"><Banknote className="w-3 h-3" /> ราคาห้องพิเศษ</p>
+                  <input name="customPrice" type="text" placeholder="ระบุราคา..." defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.price || ""} className="w-full p-4 rounded-xl border-none shadow-sm font-black focus:ring-4 ring-indigo-100 outline-none" />
                 </div>
                 {(tempStatus === 'booked' || tempStatus === 'appointment') && (
-                  <div className="space-y-4 pt-4 border-t border-indigo-100">
+                  <div className="space-y-4 pt-4 border-t border-slate-200">
                     <div className="grid grid-cols-2 gap-2">
-                      <div><p className="text-[10px] font-black mb-1 ml-2">📅 วันที่</p><input type="date" name="actionDate" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.date || ""} className="w-full p-4 rounded-xl shadow-sm font-bold text-xs border-none" /></div>
-                      <div><p className="text-[10px] font-black mb-1 ml-2">⏰ เวลา</p><input type="time" name="actionTime" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.time || ""} className="w-full p-4 rounded-xl shadow-sm font-bold text-xs border-none" /></div>
+                      <div><p className="text-[10px] font-black mb-1 ml-2 text-slate-400 uppercase">วันที่</p><input type="date" name="actionDate" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.date || ""} className="w-full p-4 rounded-xl shadow-sm font-bold text-xs border-none outline-none focus:ring-4 ring-indigo-100" /></div>
+                      <div><p className="text-[10px] font-black mb-1 ml-2 text-slate-400 uppercase">เวลา</p><input type="time" name="actionTime" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.time || ""} className="w-full p-4 rounded-xl shadow-sm font-bold text-xs border-none outline-none focus:ring-4 ring-indigo-100" /></div>
                     </div>
-                    <input name="visitorName" placeholder="👤 ชื่อลูกค้า" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.lastVisitor || ""} className="w-full p-4 rounded-xl shadow-sm border-none font-bold" />
-                    <input name="visitorPhone" type="tel" placeholder="📞 เบอร์โทร" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.lastPhone || ""} className="w-full p-4 rounded-xl shadow-sm border-none font-bold" />
+                    <input name="visitorName" placeholder="👤 ชื่อลูกค้า" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.lastVisitor || ""} className="w-full p-4 rounded-xl shadow-sm border-none font-bold outline-none focus:ring-4 ring-indigo-100" />
+                    <input name="visitorPhone" type="tel" placeholder="📞 เบอร์โทรศัพท์" defaultValue={roomStates[`${activePropertyId}_${selectedRoom}`]?.lastPhone || ""} className="w-full p-4 rounded-xl shadow-sm border-none font-bold outline-none focus:ring-4 ring-indigo-100" />
                   </div>
                 )}
               </div>
-              <button type="submit" disabled={isSaving} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black text-lg shadow-xl hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-2">
-                {isSaving ? "บันทึก..." : <><Save className="w-5 h-5" /> บันทึกข้อมูลคลาวด์</>}
+              <button type="submit" disabled={isSaving} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black text-xl shadow-2xl shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center justify-center gap-3">
+                {isSaving ? <Loader2 className="animate-spin" /> : <><Save className="w-6 h-6" /> SAVE TO CLOUD</>}
               </button>
             </div>
           </form>
         </div>
       )}
 
-      {/* PRINT LAYOUT สำหรับ Summary */}
+      {/* Print Styles */}
       <style dangerouslySetInnerHTML={{ __html: `
         @media print {
           .no-print { display: none !important; }
           body { background-color: white !important; }
-          .print-only { display: block !important; padding: 20px; }
-          .page-break { page-break-after: always; }
+          .print-only { display: block !important; }
         }
         .print-only { display: none; }
         .no-scrollbar::-webkit-scrollbar { display: none; }
       `}} />
-
-      <div className="print-only font-['Prompt',sans-serif]">
-        <h1 className="text-3xl font-black text-center mb-1 border-b-4 border-slate-900 pb-2">SUMMARY REPORT</h1>
-        <p className="text-center text-slate-500 font-bold mb-10">ข้อมูล ณ วันที่: {new Date().toLocaleString('th-TH')}</p>
-
-        <h2 className="text-xl font-black mb-4 bg-slate-100 p-2">1. สรุปภาพรวมจำนวนห้อง</h2>
-        <div className="grid grid-cols-4 gap-4 mb-10">
-            {['available', 'booked', 'maintenance', 'appointment'].map(st => (
-                <div key={st} className="border-2 p-4 rounded-xl text-center">
-                    <p className="text-[10px] font-black uppercase text-slate-400">{STATUS_CONFIG[st].label}</p>
-                    <p className="text-2xl font-black">{statusSummary[st].length}</p>
-                </div>
-            ))}
-        </div>
-
-        <h2 className="text-xl font-black mb-4 bg-slate-100 p-2">2. รายละเอียดการจอง (Booked)</h2>
-        <table className="w-full border-collapse mb-10 text-sm">
-            <thead>
-                <tr className="bg-slate-200"><th className="border p-2">เลขห้อง</th><th className="border p-2">อาคาร</th><th className="border p-2">ลูกค้า</th><th className="border p-2">เบอร์โทร</th><th className="border p-2">วันทำสัญญา/ย้ายเข้า</th></tr>
-            </thead>
-            <tbody>
-                {statusSummary.booked.map((item, i) => (
-                    <tr key={i}><td className="border p-2 text-center font-bold">{item.roomNo}</td><td className="border p-2">{item.propertyName}</td><td className="border p-2">{item.lastVisitor}</td><td className="border p-2">{item.lastPhone}</td><td className="border p-2 text-center">{item.date} {item.time}</td></tr>
-                ))}
-            </tbody>
-        </table>
-
-        <h2 className="text-xl font-black mb-4 bg-slate-100 p-2">3. รายละเอียดการนัดดูห้อง (Appointment)</h2>
-        <table className="w-full border-collapse text-sm">
-            <thead>
-                <tr className="bg-slate-200"><th className="border p-2">เลขห้อง</th><th className="border p-2">อาคาร</th><th className="border p-2">ลูกค้า</th><th className="border p-2">เบอร์โทร</th><th className="border p-2">วันที่นัดหมาย</th></tr>
-            </thead>
-            <tbody>
-                {statusSummary.appointment.map((item, i) => (
-                    <tr key={i}><td className="border p-2 text-center font-bold">{item.roomNo}</td><td className="border p-2">{item.propertyName}</td><td className="border p-2">{item.lastVisitor}</td><td className="border p-2">{item.lastPhone}</td><td className="border p-2 text-center">{item.date} {item.time}</td></tr>
-                ))}
-            </tbody>
-        </table>
-      </div>
     </div>
+  );
+}
+
+function Loader2({ className }) {
+  return (
+    <div className={`w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin ${className}`}></div>
   );
 }
